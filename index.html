@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha & Delta Secure Chat</title>
+    <style>
+        :root {
+            --bg: #efeae2;
+            --chat-bg: #e1ffd4;
+            --chat-other: #ffffff;
+            --primary: #008069;
+            --text: #111b21;
+            --meta: #667781;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: #d1d7db; display: flex; justify-content: center; height: 100vh; align-items: center; }
+        
+        /* App Container */
+        #app { width: 100%; max-width: 1200px; height: 100vh; background: var(--bg); display: flex; flex-direction: column; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        @media (min-width: 768px) { #app { height: 95vh; border-radius: 10px; overflow: hidden; } }
+
+        /* Login Screen */
+        #login-screen { position: absolute; inset: 0; background: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        .login-box { text-align: center; padding: 2rem; border-radius: 10px; background: #f0f2f5; }
+        .login-btn { margin: 10px; padding: 12px 24px; font-size: 16px; cursor: pointer; background: var(--primary); color: white; border: none; border-radius: 5px; font-weight: bold; transition: 0.2s; }
+        .login-btn:hover { background: #006653; }
+
+        /* Header */
+        header { background: #f0f2f5; padding: 15px 20px; display: flex; align-items: center; border-bottom: 1px solid #d1d7db; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; background: #ccc; display: flex; justify-content: center; align-items: center; font-weight: bold; color: white; margin-right: 15px; }
+        .user-info h2 { font-size: 16px; color: var(--text); }
+        .status { font-size: 13px; color: var(--meta); display: flex; align-items: center; gap: 5px; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+        .dot.online { background: #25d366; }
+
+        /* Chat Area */
+        #chat-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; background-image: url('https://www.transparenttextures.com/patterns/cubes.png'); }
+        .loading-older { text-align: center; font-size: 12px; color: var(--meta); margin-bottom: 10px; display: none; }
+        .message { max-width: 65%; margin-bottom: 10px; padding: 8px 12px; border-radius: 7.5px; position: relative; font-size: 15px; line-height: 1.4; box-shadow: 0 1px 1px rgba(0,0,0,0.1); word-wrap: break-word; }
+        .message.sent { align-self: flex-end; background: var(--chat-bg); border-top-right-radius: 0; }
+        .message.received { align-self: flex-start; background: var(--chat-other); border-top-left-radius: 0; }
+        .message img { max-width: 100%; border-radius: 5px; cursor: zoom-in; margin-bottom: 5px; }
+        .message .time { font-size: 11px; color: var(--meta); float: right; margin-top: 5px; margin-left: 10px; }
+
+        /* Input Area */
+        #input-area { background: #f0f2f5; padding: 15px; display: flex; gap: 10px; align-items: center; }
+        #file-input { display: none; }
+        .attach-btn { cursor: pointer; font-size: 24px; color: var(--meta); }
+        #msg-input { flex: 1; padding: 12px 15px; border-radius: 20px; border: none; outline: none; font-size: 15px; }
+        .send-btn { background: var(--primary); color: white; border: none; width: 45px; height: 45px; border-radius: 50%; cursor: pointer; display: flex; justify-content: center; align-items: center; font-size: 18px; }
+        .send-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        /* Image Modal */
+        #image-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 200; justify-content: center; align-items: center; }
+        #image-modal img { max-width: 90%; max-height: 90%; border-radius: 5px; transition: transform 0.3s ease; }
+        .close-modal { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="login-screen">
+        <div class="login-box">
+            <h2>Who are you?</h2>
+            <br>
+            <button class="login-btn" onclick="initApp('Alpha')">I am Alpha</button>
+            <button class="login-btn" onclick="initApp('Delta')">I am Delta</button>
+        </div>
+    </div>
+
+    <header>
+        <div class="avatar" id="other-avatar">?</div>
+        <div class="user-info">
+            <h2 id="other-name">Loading...</h2>
+            <div class="status">
+                <div class="dot" id="status-dot"></div>
+                <span id="status-text">Offline</span>
+            </div>
+        </div>
+    </header>
+
+    <div id="chat-container">
+        <div class="loading-older" id="loading-older">Loading older messages...</div>
+        </div>
+
+    <div id="input-area">
+        <label for="file-input" class="attach-btn">📎</label>
+        <input type="file" id="file-input" accept="image/*">
+        <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off">
+        <button class="send-btn" id="send-btn">➤</button>
+    </div>
+</div>
+
+<div id="image-modal">
+    <span class="close-modal" onclick="closeModal()">×</span>
+    <img id="modal-img" src="" alt="Zoomed Image">
+</div>
+
+<script type="module">
+    // 1. Firebase Configuration & Imports
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, startAfter, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getDatabase, ref, onValue, set, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyAL0Yqbt62E-tNKePMsWAY0WzaUUWPt5bI",
+        authDomain: "deltaalpha-732cb.firebaseapp.com",
+        databaseURL: "https://deltaalpha-732cb-default-rtdb.firebaseio.com",
+        projectId: "deltaalpha-732cb",
+        storageBucket: "deltaalpha-732cb.firebasestorage.app",
+        messagingSenderId: "143391036027",
+        appId: "1:143391036027:web:962430b9c56147fcbc08de",
+        measurementId: "G-VW2VT1W6P1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const rtdb = getDatabase(app);
+
+    // Global State
+    let currentUser = null;
+    let otherUser = null;
+    let lastVisibleDoc = null;
+    let isFetchingOlder = false;
+    let initialLoad = true;
+    const MESSAGES_PER_PAGE = 20;
+
+    // DOM Elements
+    const chatContainer = document.getElementById('chat-container');
+    const msgInput = document.getElementById('msg-input');
+    const sendBtn = document.getElementById('send-btn');
+    const fileInput = document.getElementById('file-input');
+    const loadingOlder = document.getElementById('loading-older');
+
+    // 2. Initialization Flow
+    window.initApp = function(user) {
+        currentUser = user;
+        otherUser = currentUser === 'Alpha' ? 'Delta' : 'Alpha';
+        
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('other-name').innerText = otherUser;
+        document.getElementById('other-avatar').innerText = otherUser.charAt(0);
+        document.getElementById('other-avatar').style.background = otherUser === 'Alpha' ? '#e91e63' : '#3f51b5';
+
+        setupPresence();
+        loadMessages();
+    };
+
+    // 3. Realtime Presence System (Online/Offline)
+    function setupPresence() {
+        const myStatusRef = ref(rtdb, '/status/' + currentUser);
+        const connectedRef = ref(rtdb, '.info/connected');
+        
+        onValue(connectedRef, (snap) => {
+            if (snap.val() === true) {
+                const con = onDisconnect(myStatusRef);
+                con.set('offline').then(() => {
+                    set(myStatusRef, 'online');
+                });
+            }
+        });
+
+        const otherStatusRef = ref(rtdb, '/status/' + otherUser);
+        onValue(otherStatusRef, (snapshot) => {
+            const status = snapshot.val();
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            if (status === 'online') {
+                dot.classList.add('online');
+                text.innerText = 'Online';
+            } else {
+                dot.classList.remove('online');
+                text.innerText = 'Offline';
+            }
+        });
+    }
+
+    // 4. Message Pagination & Rendering
+    function loadMessages() {
+        // Query latest messages
+        const q = query(collection(db, "messages"), orderBy("timestamp", "desc"), limit(MESSAGES_PER_PAGE));
+        
+        onSnapshot(q, (snapshot) => {
+            const docs = snapshot.docs;
+            if(docs.length > 0 && initialLoad) {
+                lastVisibleDoc = docs[docs.length - 1]; // Save for pagination
+            }
+
+            // Reverse for chronological UI order
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    const data = change.doc.data();
+                    const msgEl = createMessageElement(data);
+                    
+                    // If initial load or someone sends a new message, append to bottom
+                    if (initialLoad || data.timestamp === null || Date.now() - data.timestamp?.toMillis() < 5000) {
+                        chatContainer.appendChild(msgEl);
+                        scrollToBottom();
+                    } else {
+                        // Edge case fallback
+                        chatContainer.insertBefore(msgEl, chatContainer.firstChild);
+                    }
+                }
+            });
+            initialLoad = false;
+        });
+
+        // Scroll Event for Lazy Loading
+        chatContainer.addEventListener('scroll', async () => {
+            if (chatContainer.scrollTop === 0 && !isFetchingOlder && lastVisibleDoc) {
+                fetchOlderMessages();
+            }
+        });
+    }
+
+    async function fetchOlderMessages() {
+        isFetchingOlder = true;
+        loadingOlder.style.display = 'block';
+
+        const q = query(collection(db, "messages"), orderBy("timestamp", "desc"), startAfter(lastVisibleDoc), limit(MESSAGES_PER_PAGE));
+        const snapshot = await getDocs(q);
+        
+        if (!snapshot.empty) {
+            const oldHeight = chatContainer.scrollHeight;
+            lastVisibleDoc = snapshot.docs[snapshot.docs.length - 1];
+            
+            // Prepend older messages
+            snapshot.docs.forEach(doc => {
+                const msgEl = createMessageElement(doc.data());
+                chatContainer.insertBefore(msgEl, loadingOlder.nextSibling);
+            });
+            
+            // Maintain scroll position after prepending
+            chatContainer.scrollTop = chatContainer.scrollHeight - oldHeight;
+        }
+        
+        loadingOlder.style.display = 'none';
+        isFetchingOlder = false;
+    }
+
+    function createMessageElement(data) {
+        const div = document.createElement('div');
+        div.classList.add('message', data.sender === currentUser ? 'sent' : 'received');
+        
+        let contentHtml = '';
+        if (data.image) {
+            contentHtml += `<img src="${data.image}" onclick="openModal(this.src)" />`;
+        }
+        if (data.text) {
+            contentHtml += `<div>${escapeHTML(data.text)}</div>`;
+        }
+        
+        const time = data.timestamp ? new Date(data.timestamp.toMillis()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Sending...';
+        contentHtml += `<div class="time">${time}</div>`;
+        
+        div.innerHTML = contentHtml;
+        return div;
+    }
+
+    // 5. Sending Messages & Image Compression
+    async function sendMessage(text, base64Image = null) {
+        if (!text.trim() && !base64Image) return;
+        
+        const msgData = {
+            sender: currentUser,
+            text: text.trim(),
+            image: base64Image,
+            timestamp: serverTimestamp()
+        };
+
+        msgInput.value = '';
+        sendBtn.disabled = true;
+
+        try {
+            await addDoc(collection(db, "messages"), msgData);
+        } catch (error) {
+            console.error("Error sending message:", error);
+            alert("Failed to send message.");
+        } finally {
+            sendBtn.disabled = false;
+            scrollToBottom();
+        }
+    }
+
+    sendBtn.addEventListener('click', () => sendMessage(msgInput.value));
+    msgInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage(msgInput.value);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // Size validation (Max 4MB input)
+        if (file.size > 4 * 1024 * 1024) {
+            alert("File is larger than 4MB. Please select a smaller file.");
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const img = new Image();
+            img.onload = function() {
+                // Resize/Compress Image to fit inside Firestore 1MB doc limit (~750kb Base64)
+                const canvas = document.createElement('canvas');
+                const MAX_DIMENSION = 1080; // High quality but caps size
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height && width > MAX_DIMENSION) {
+                    height *= MAX_DIMENSION / width;
+                    width = MAX_DIMENSION;
+                } else if (height > MAX_DIMENSION) {
+                    width *= MAX_DIMENSION / height;
+                    height = MAX_DIMENSION;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Compress to JPEG format with 0.7 quality to ensure small base64 footprint
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                
+                // Prompt user for optional caption
+                const caption = prompt("Add a caption to your image (optional):") || "";
+                sendMessage(caption, compressedBase64);
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // 6. Utility Functions
+    function scrollToBottom() {
+        setTimeout(() => { chatContainer.scrollTop = chatContainer.scrollHeight; }, 100);
+    }
+
+    function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, tag => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+        }[tag]));
+    }
+
+    // Modal logic (globally scoped for inline onclick handlers)
+    window.openModal = function(src) {
+        document.getElementById('modal-img').src = src;
+        document.getElementById('image-modal').style.display = 'flex';
+        // Simple Zoom logic
+        let scale = 1;
+        document.getElementById('modal-img').onclick = function() {
+            scale = scale === 1 ? 2 : 1;
+            this.style.transform = `scale(${scale})`;
+            this.style.cursor = scale === 1 ? 'zoom-in' : 'zoom-out';
+        };
+    };
+    window.closeModal = function() {
+        document.getElementById('image-modal').style.display = 'none';
+        document.getElementById('modal-img').style.transform = 'scale(1)';
+    };
+
+</script>
+</body>
+</html>
